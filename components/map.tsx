@@ -19,19 +19,18 @@ export default function Map() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
 
-  // Crime and 311 are mutually exclusive (radio button behavior)
-  const [activeDataType, setActiveDataType] = useState<"crime" | "311" | null>("crime");
-  const [showTransit, setShowTransit] = useState(true);
+  // Crime, 311, and Fire are mutually exclusive (radio button behavior)
+  const [activeDataType, setActiveDataType] = useState<"crime" | "311" | "fire" | null>("crime");
   const [timeFilter, setTimeFilter] = useState(999999); // Default to "All time"
   
   // Stats counts for each data type
   const [crimeCount, setCrimeCount] = useState(0);
   const [calls311Count, setCalls311Count] = useState(0);
-  const [transitCount, setTransitCount] = useState(0);
+  const [fireCount, setFireCount] = useState(0);
   
   // Sidebar state
   const [selectedIncident, setSelectedIncident] = useState<any | null>(null);
-  const [incidentType, setIncidentType] = useState<"crime" | "311" | "transit" | null>(null);
+  const [incidentType, setIncidentType] = useState<"crime" | "311" | "fire" | null>(null);
   
   // Dark mode state
   const [isDark, setIsDark] = useState(false);
@@ -74,6 +73,7 @@ export default function Map() {
   // Derived states for easier use
   const showCrime = activeDataType === "crime";
   const show311 = activeDataType === "311";
+  const showFire = activeDataType === "fire";
 
   const markers = useRef<mapboxgl.Marker[]>([]);
   const incidentDataRef = useRef<Record<string, any>>({}); // Store full incident data by marker ID
@@ -152,7 +152,7 @@ export default function Map() {
       }
     }, 100);
     return () => clearTimeout(timer);
-  }, [activeDataType, showTransit, timeFilter]);
+  }, [activeDataType, timeFilter]);
 
   // Fetch and calculate counts for all data types
   useEffect(() => {
@@ -196,22 +196,22 @@ export default function Map() {
         console.error("Error fetching 311 count:", error);
       }
 
-      // Fetch transit count
+      // Fetch fire count
       try {
-        const transitRes = await fetch("/api/transit");
-        if (transitRes.ok) {
-          const transitData = await transitRes.json();
-          if (!transitData.error) {
-            const count = transitData.filter((i: any) => {
+        const fireRes = await fetch("/api/fire");
+        if (fireRes.ok) {
+          const fireData = await fireRes.json();
+          if (!fireData.error) {
+            const count = fireData.filter((i: any) => {
               if (!i.longitude || !i.latitude) return false;
               const time = i.timestamp ? new Date(i.timestamp).getTime() : null;
               return timeFilter === 999999 || (time && time >= cutoff);
             }).length;
-            setTransitCount(count);
+            setFireCount(count);
           }
         }
       } catch (error) {
-        console.error("Error fetching transit count:", error);
+        console.error("Error fetching fire count:", error);
       }
     }
 
@@ -236,7 +236,7 @@ export default function Map() {
       color: string, 
       popupHtml: string, 
       incidentData: any,
-      type: "crime" | "311" | "transit"
+      type: "crime" | "311" | "fire"
     ) {
       // Validate coordinates
       if (!lng || !lat || isNaN(lng) || isNaN(lat) || lng === 0 || lat === 0) {
@@ -360,22 +360,22 @@ export default function Map() {
         }
       }
 
-      // Transit
-      if (showTransit) {
+      // Fire / Emergency
+      if (showFire) {
         try {
-          const res = await fetch("/api/transit");
+          const res = await fetch("/api/fire");
           if (!res.ok) {
-            console.error("Transit API error:", res.statusText);
+            console.error("Fire API error:", res.statusText);
             return;
           }
           const data = await res.json();
           
           if (data.error) {
-            console.error("Transit API returned error:", data.error);
+            console.error("Fire API returned error:", data.error);
             return;
           }
 
-          let transitCount = 0;
+          let fireCount = 0;
           data.forEach((i: any) => {
             if (!i.longitude || !i.latitude) return;
             
@@ -385,22 +385,23 @@ export default function Map() {
               addMarker(
                 i.longitude,
                 i.latitude,
-                "green",
+                "#f97316", // orange-500
                 `
                 <div class="p-3 min-w-[200px] ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'} rounded-lg">
-                  <h3 class="font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'} mb-1">Transit Vehicle</h3>
-                  <p class="text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}"><strong>Route:</strong> ${i.route || "Unknown"}</p>
+                  <h3 class="font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'} mb-1">Fire / Emergency</h3>
+                  <p class="text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}"><strong>Situation:</strong> ${i.category || i.primarySituation || "Unknown"}</p>
+                  ${i.address ? `<p class="text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1">${i.address}</p>` : ''}
                   <p class="text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
                 </div>`,
                 i,
-                "transit"
+                "fire"
               );
-              transitCount++;
+              fireCount++;
             }
           });
-          console.log(`Added ${transitCount} transit markers`);
+          console.log(`Added ${fireCount} fire markers`);
         } catch (error) {
-          console.error("Error loading transit data:", error);
+          console.error("Error loading fire data:", error);
         }
       }
     } catch (error) {
@@ -478,17 +479,17 @@ export default function Map() {
                 </button>
 
                 <button
-                  onClick={() => setShowTransit(!showTransit)}
+                  onClick={() => setActiveDataType("fire")}
                   className={`
                     group relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 
-                    ${showTransit
-                      ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/30 scale-105"
+                    ${activeDataType === "fire"
+                      ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/30 scale-105"
                       : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-105"}
                   `}
                 >
                   <span className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${showTransit ? 'bg-white' : 'bg-green-500'}`}></span>
-                    Transit
+                    <span className={`w-2 h-2 rounded-full ${activeDataType === "fire" ? 'bg-white' : 'bg-orange-500'}`}></span>
+                    Fire / Emergency
                   </span>
                 </button>
               </div>
@@ -535,13 +536,16 @@ export default function Map() {
           <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 transition-colors duration-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 transition-colors duration-200">Transit Vehicles</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{transitCount.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">Real-time</p>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 transition-colors duration-200">Fire / Emergency</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{fireCount.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">
+                  {TIME_OPTIONS.find(o => o.value === timeFilter)?.label || "All Time"}
+                </p>
               </div>
-              <div className="p-3 bg-green-50 dark:bg-green-900/30 rounded-lg transition-colors duration-200">
-                <svg className="w-6 h-6 text-green-500 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              <div className="p-3 bg-orange-50 dark:bg-orange-900/30 rounded-lg transition-colors duration-200">
+                <svg className="w-6 h-6 text-orange-500 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" />
                 </svg>
               </div>
             </div>
@@ -620,7 +624,7 @@ export default function Map() {
                   <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">
                     {incidentType === "crime" && "Crime Incident"}
                     {incidentType === "311" && "311 Service Request"}
-                    {incidentType === "transit" && "Transit Vehicle"}
+                    {incidentType === "fire" && "Fire / Emergency Incident"}
                   </h2>
                   <button
                     onClick={() => {
@@ -837,66 +841,113 @@ export default function Map() {
                   </div>
                 )}
 
-                {/* Transit Vehicle Details */}
-                {incidentType === "transit" && (
+                {/* Fire / Emergency Incident Details */}
+                {incidentType === "fire" && (
                   <div className="space-y-4">
-                    <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl border border-green-100 dark:border-green-800/50 transition-colors duration-200">
+                    <div className="p-4 bg-orange-50 dark:bg-orange-900/30 rounded-xl border border-orange-100 dark:border-orange-800/50 transition-colors duration-200">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                        <span className="text-sm font-semibold text-green-700 dark:text-green-400 uppercase transition-colors duration-200">Live Transit</span>
+                        <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                        <span className="text-sm font-semibold text-orange-700 dark:text-orange-400 uppercase transition-colors duration-200">Fire / Emergency</span>
                       </div>
                       <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 transition-colors duration-200">
-                        Route {selectedIncident.route || "Unknown"}
+                        {selectedIncident.category || selectedIncident.primarySituation || "Emergency Response"}
                       </h3>
                     </div>
 
                     <div className="space-y-3">
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Vehicle ID</label>
-                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">{selectedIncident.id || "N/A"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Incident Number</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">{selectedIncident.incidentNumber || selectedIncident.id || "N/A"}</p>
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Route</label>
-                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.route || "Unknown"}</p>
-                      </div>
-
-                      {selectedIncident.direction && (
-                        <div>
-                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Direction</label>
-                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.direction}</p>
-                        </div>
-                      )}
-
-                      <div>
-                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Last Updated</label>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Date & Time</label>
                         <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">
-                          {selectedIncident.timestamp 
-                            ? new Date(selectedIncident.timestamp).toLocaleString('en-US', {
+                          {selectedIncident.alarmTime 
+                            ? new Date(selectedIncident.alarmTime).toLocaleString('en-US', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
                                 hour: '2-digit',
-                                minute: '2-digit',
-                                second: '2-digit'
+                                minute: '2-digit'
+                              })
+                            : selectedIncident.timestamp 
+                            ? new Date(selectedIncident.timestamp).toLocaleString('en-US', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
                               })
                             : "N/A"}
                         </p>
+                        {selectedIncident.arrivalTime && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">
+                            Arrived: {new Date(selectedIncident.arrivalTime).toLocaleString('en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        )}
                       </div>
 
-                      {selectedIncident.heading !== null && selectedIncident.heading !== undefined && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Primary Situation</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.category || selectedIncident.primarySituation || "Unknown"}</p>
+                      </div>
+
+                      {selectedIncident.description && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Heading</label>
-                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.heading}°</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Description</label>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 transition-colors duration-200">{selectedIncident.description}</p>
                         </div>
                       )}
 
-                      {selectedIncident.speed !== null && selectedIncident.speed !== undefined && (
+                      {selectedIncident.address && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Speed</label>
-                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.speed} km/h</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Address</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.address}</p>
+                        </div>
+                      )}
+
+                      {selectedIncident.neighborhood && (
+                        <div>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Neighborhood</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.neighborhood}</p>
+                        </div>
+                      )}
+
+                      {selectedIncident.battalion && (
+                        <div>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Battalion</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.battalion}</p>
+                        </div>
+                      )}
+
+                      {selectedIncident.stationArea && (
+                        <div>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Station Area</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.stationArea}</p>
+                        </div>
+                      )}
+
+                      {selectedIncident.closeTime && (
+                        <div>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Close Time</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">
+                            {new Date(selectedIncident.closeTime).toLocaleString('en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit'
+                            })}
+                          </p>
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Current Location</label>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Coordinates</label>
                         <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">
                           {selectedIncident.latitude?.toFixed(6)}, {selectedIncident.longitude?.toFixed(6)}
                         </p>
@@ -912,16 +963,17 @@ export default function Map() {
                             });
                           }
                         }}
-                        className="w-full mt-4 px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+                        className="w-full mt-4 px-4 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
                       >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
-                        Track Vehicle
+                        Zoom to Location
                       </button>
                     </div>
                   </div>
                 )}
+
               </div>
             )}
           </div>
@@ -942,8 +994,8 @@ export default function Map() {
               <span className="text-sm text-gray-700 dark:text-gray-300 font-medium transition-colors duration-200">311 Reports</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-green-500 rounded-full shadow-md"></div>
-              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium transition-colors duration-200">Transit Vehicles</span>
+              <div className="w-4 h-4 bg-orange-500 rounded-full shadow-md"></div>
+              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium transition-colors duration-200">Fire / Emergency</span>
             </div>
           </div>
         </div>
