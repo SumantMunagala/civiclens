@@ -2,6 +2,8 @@
 
 import mapboxgl from "mapbox-gl";
 import { useEffect, useRef, useState } from "react";
+import ThemeToggle from "./ThemeToggle";
+import SearchBar from "./SearchBar";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
@@ -31,6 +33,44 @@ export default function Map() {
   const [selectedIncident, setSelectedIncident] = useState<any | null>(null);
   const [incidentType, setIncidentType] = useState<"crime" | "311" | "transit" | null>(null);
   
+  // Dark mode state
+  const [isDark, setIsDark] = useState(false);
+  
+  // Search location handler
+  const handleSearchLocation = (lng: number, lat: number, placeName: string) => {
+    if (!map.current) return;
+    
+    map.current.flyTo({
+      center: [lng, lat],
+      zoom: 14,
+      speed: 1.2,
+      curve: 1.42,
+      easing: (t: number) => t * (2 - t), // ease-out
+    });
+
+    // Optional: Add a temporary marker at the searched location
+    const isDarkMode = document.documentElement.classList.contains("dark");
+    const searchMarker = new mapboxgl.Marker({
+      color: "#3b82f6",
+      scale: 1.2,
+    })
+      .setLngLat([lng, lat])
+      .setPopup(
+        new mapboxgl.Popup({ offset: 25, closeOnClick: false })
+          .setHTML(`
+            <div class="p-3 ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'} rounded-lg">
+              <h3 class="font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'} text-sm">${placeName}</h3>
+            </div>
+          `)
+      )
+      .addTo(map.current);
+
+    // Remove the search marker after 5 seconds
+    setTimeout(() => {
+      searchMarker.remove();
+    }, 5000);
+  };
+  
   // Derived states for easier use
   const showCrime = activeDataType === "crime";
   const show311 = activeDataType === "311";
@@ -38,12 +78,45 @@ export default function Map() {
   const markers = useRef<mapboxgl.Marker[]>([]);
   const incidentDataRef = useRef<Record<string, any>>({}); // Store full incident data by marker ID
 
+  // Detect dark mode changes
+  useEffect(() => {
+    const checkDarkMode = () => {
+      const isCurrentlyDark = document.documentElement.classList.contains("dark");
+      setIsDark(isCurrentlyDark);
+    };
+
+    // Initial check
+    checkDarkMode();
+
+    // Watch for DOM changes
+    const observer = new MutationObserver(checkDarkMode);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    // Also listen for theme change events
+    const handleThemeChange = () => {
+      checkDarkMode();
+    };
+    window.addEventListener("themechange", handleThemeChange);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("themechange", handleThemeChange);
+    };
+  }, []);
+
   useEffect(() => {
     if (map.current) return;
 
+    const initialStyle = document.documentElement.classList.contains("dark")
+      ? "mapbox://styles/mapbox/dark-v11"
+      : "mapbox://styles/mapbox/light-v11";
+
     map.current = new mapboxgl.Map({
       container: mapContainer.current!,
-      style: "mapbox://styles/mapbox/light-v11",
+      style: initialStyle,
       center: [-122.4194, 37.7749],
       zoom: 12,
     });
@@ -53,6 +126,21 @@ export default function Map() {
       loadMarkers();
     });
   }, []);
+
+  // Update map style when dark mode changes
+  useEffect(() => {
+    if (!map.current) return;
+
+    const newStyle = isDark
+      ? "mapbox://styles/mapbox/dark-v11"
+      : "mapbox://styles/mapbox/light-v11";
+
+    map.current.setStyle(newStyle);
+    map.current.once("style.load", () => {
+      // Reload markers after style change
+      loadMarkers();
+    });
+  }, [isDark]);
 
   useEffect(() => {
     if (!map.current) return;
@@ -205,15 +293,16 @@ export default function Map() {
             
             const time = i.timestamp ? new Date(i.timestamp).getTime() : null;
             if (timeFilter === 999999 || (time && time >= cutoff)) {
+              const isDarkMode = document.documentElement.classList.contains("dark");
               addMarker(
                 i.longitude,
                 i.latitude,
                 "red",
                 `
-                <div class="p-3 min-w-[200px]">
-                  <h3 class="font-bold text-gray-900 mb-1">Crime Incident</h3>
-                  <p class="text-sm text-gray-700"><strong>Type:</strong> ${i.category || "Unknown"}</p>
-                  <p class="text-xs text-gray-600 mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
+                <div class="p-3 min-w-[200px] ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'} rounded-lg">
+                  <h3 class="font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'} mb-1">Crime Incident</h3>
+                  <p class="text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}"><strong>Type:</strong> ${i.category || "Unknown"}</p>
+                  <p class="text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
                 </div>`,
                 i,
                 "crime"
@@ -248,15 +337,16 @@ export default function Map() {
             
             const time = i.timestamp ? new Date(i.timestamp).getTime() : null;
             if (timeFilter === 999999 || (time && time >= cutoff)) {
+              const isDarkMode = document.documentElement.classList.contains("dark");
               addMarker(
                 i.longitude,
                 i.latitude,
                 "blue",
                 `
-                <div class="p-3 min-w-[200px]">
-                  <h3 class="font-bold text-gray-900 mb-1">311 / Public Safety</h3>
-                  <p class="text-sm text-gray-700"><strong>Incident:</strong> ${i.category || "Unknown"}</p>
-                  <p class="text-xs text-gray-600 mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
+                <div class="p-3 min-w-[200px] ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'} rounded-lg">
+                  <h3 class="font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'} mb-1">311 / Public Safety</h3>
+                  <p class="text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}"><strong>Incident:</strong> ${i.category || "Unknown"}</p>
+                  <p class="text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
                 </div>`,
                 i,
                 "311"
@@ -291,15 +381,16 @@ export default function Map() {
             
             const time = i.timestamp ? new Date(i.timestamp).getTime() : null;
             if (timeFilter === 999999 || (time && time >= cutoff)) {
+              const isDarkMode = document.documentElement.classList.contains("dark");
               addMarker(
                 i.longitude,
                 i.latitude,
                 "green",
                 `
-                <div class="p-3 min-w-[200px]">
-                  <h3 class="font-bold text-gray-900 mb-1">Transit Vehicle</h3>
-                  <p class="text-sm text-gray-700"><strong>Route:</strong> ${i.route || "Unknown"}</p>
-                  <p class="text-xs text-gray-600 mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
+                <div class="p-3 min-w-[200px] ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-900'} rounded-lg">
+                  <h3 class="font-bold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'} mb-1">Transit Vehicle</h3>
+                  <p class="text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}"><strong>Route:</strong> ${i.route || "Unknown"}</p>
+                  <p class="text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1">${i.timestamp ? new Date(i.timestamp).toLocaleString() : "N/A"}</p>
                 </div>`,
                 i,
                 "transit"
@@ -318,36 +409,41 @@ export default function Map() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6 lg:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6 lg:p-8 transition-colors duration-200">
       <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Header Section */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6 lg:p-8">
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 lg:p-8 transition-colors duration-200">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-              <h1 className="text-3xl lg:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+              <h1 className="text-3xl lg:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">
                 CivicLens Dashboard
               </h1>
-              <p className="text-gray-600 mt-2 text-sm lg:text-base">
+              <p className="text-gray-600 dark:text-gray-300 mt-2 text-sm lg:text-base transition-colors duration-200">
                 Real-time public safety & city activity monitoring
               </p>
             </div>
             
-            {/* Live indicator */}
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-full border border-green-200 w-fit">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium text-green-700">Live Data</span>
+            <div className="flex items-center gap-3">
+              {/* Theme Toggle */}
+              <ThemeToggle />
+              
+              {/* Live indicator */}
+              <div className="flex items-center gap-2 px-4 py-2 bg-green-50 dark:bg-green-900/30 rounded-full border border-green-200 dark:border-green-800 w-fit transition-colors duration-200">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-green-700 dark:text-green-400 transition-colors duration-200">Live Data</span>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Control Panel */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6 lg:p-8">
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 lg:p-8 transition-colors duration-200">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             
             {/* Data Type Filters */}
             <div className="flex-1">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 transition-colors duration-200">
                 Data Layers
               </h2>
               <div className="flex flex-wrap gap-3">
@@ -357,7 +453,7 @@ export default function Map() {
                     group relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 
                     ${activeDataType === "crime"
                       ? "bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-lg shadow-red-500/30 scale-105"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 hover:scale-105"}
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-105"}
                   `}
                 >
                   <span className="flex items-center gap-2">
@@ -372,7 +468,7 @@ export default function Map() {
                     group relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 
                     ${activeDataType === "311"
                       ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg shadow-blue-500/30 scale-105"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 hover:scale-105"}
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-105"}
                   `}
                 >
                   <span className="flex items-center gap-2">
@@ -387,7 +483,7 @@ export default function Map() {
                     group relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 
                     ${showTransit
                       ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/30 scale-105"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 hover:scale-105"}
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-105"}
                   `}
                 >
                   <span className="flex items-center gap-2">
@@ -402,49 +498,49 @@ export default function Map() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
+          <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 transition-colors duration-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Crime Reports</p>
-                <p className="text-3xl font-bold text-gray-900">{crimeCount.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 transition-colors duration-200">Crime Reports</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{crimeCount.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">
                   {TIME_OPTIONS.find(o => o.value === timeFilter)?.label || "All Time"}
                 </p>
               </div>
-              <div className="p-3 bg-red-50 rounded-lg">
-                <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg transition-colors duration-200">
+                <svg className="w-6 h-6 text-red-500 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
+          <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 transition-colors duration-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">311 Calls</p>
-                <p className="text-3xl font-bold text-gray-900">{calls311Count.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 transition-colors duration-200">311 Calls</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{calls311Count.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">
                   {TIME_OPTIONS.find(o => o.value === timeFilter)?.label || "All Time"}
                 </p>
               </div>
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg transition-colors duration-200">
+                <svg className="w-6 h-6 text-blue-500 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
               </div>
             </div>
           </div>
 
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
+          <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 transition-colors duration-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Transit Vehicles</p>
-                <p className="text-3xl font-bold text-gray-900">{transitCount.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 mt-1">Real-time</p>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1 transition-colors duration-200">Transit Vehicles</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{transitCount.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">Real-time</p>
               </div>
-              <div className="p-3 bg-green-50 rounded-lg">
-                <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="p-3 bg-green-50 dark:bg-green-900/30 rounded-lg transition-colors duration-200">
+                <svg className="w-6 h-6 text-green-500 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                 </svg>
               </div>
@@ -453,8 +549,8 @@ export default function Map() {
         </div>
 
         {/* Time Range Filter Buttons */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6 lg:p-8">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 lg:p-8 transition-colors duration-200">
+          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4 transition-colors duration-200">
             Time Range
           </h2>
           <div className="flex flex-wrap gap-3">
@@ -466,7 +562,7 @@ export default function Map() {
                   px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200
                   ${timeFilter === option.value
                     ? "bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-lg shadow-blue-500/30 scale-105"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 hover:scale-105"}
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-105"}
                 `}
               >
                 {option.label}
@@ -476,7 +572,7 @@ export default function Map() {
         </div>
 
         {/* Map Container with Sidebar */}
-        <div className="relative rounded-2xl overflow-hidden shadow-2xl border-4 border-white/50">
+        <div className="relative rounded-2xl overflow-hidden shadow-2xl border-4 border-white/50 dark:border-gray-700/50 transition-colors duration-200">
           <div
             ref={mapContainer}
             className={`w-full h-[600px] lg:h-[700px] transition-all duration-300 ${
@@ -486,6 +582,13 @@ export default function Map() {
           
           {/* Map overlay gradient for depth */}
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/5 to-transparent"></div>
+
+          {/* Floating Search Bar Overlay */}
+          <div className="absolute top-4 left-4 right-4 lg:left-6 lg:right-auto lg:w-96 z-10">
+            <div className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 p-1">
+              <SearchBar onLocationSelect={handleSearchLocation} />
+            </div>
+          </div>
 
           {/* Backdrop overlay for mobile */}
           {selectedIncident && (
@@ -503,9 +606,9 @@ export default function Map() {
             className={`
               fixed lg:absolute top-0 right-0 h-full lg:h-auto lg:max-h-[700px]
               w-full lg:w-[400px] 
-              bg-white/95 backdrop-blur-lg
-              shadow-2xl border-l border-gray-200
-              transform transition-transform duration-300 ease-in-out z-50
+              bg-white/95 dark:bg-gray-800/95 backdrop-blur-lg
+              shadow-2xl border-l border-gray-200 dark:border-gray-700
+              transform transition-all duration-300 ease-in-out z-50
               overflow-y-auto
               ${selectedIncident ? "translate-x-0" : "translate-x-full lg:translate-x-full"}
             `}
@@ -513,8 +616,8 @@ export default function Map() {
             {selectedIncident && (
               <div className="p-6">
                 {/* Sidebar Header */}
-                <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
-                  <h2 className="text-2xl font-bold text-gray-900">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">
                     {incidentType === "crime" && "Crime Incident"}
                     {incidentType === "311" && "311 Service Request"}
                     {incidentType === "transit" && "Transit Vehicle"}
@@ -524,9 +627,9 @@ export default function Map() {
                       setSelectedIncident(null);
                       setIncidentType(null);
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200"
                   >
-                    <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -535,25 +638,25 @@ export default function Map() {
                 {/* Crime Incident Details */}
                 {incidentType === "crime" && (
                   <div className="space-y-4">
-                    <div className="p-4 bg-red-50 rounded-xl border border-red-100">
+                    <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-xl border border-red-100 dark:border-red-800/50 transition-colors duration-200">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                        <span className="text-sm font-semibold text-red-700 uppercase">Crime Report</span>
+                        <span className="text-sm font-semibold text-red-700 dark:text-red-400 uppercase transition-colors duration-200">Crime Report</span>
                       </div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-1">
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 transition-colors duration-200">
                         {selectedIncident.category || "Unknown Category"}
                       </h3>
                     </div>
 
                     <div className="space-y-3">
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Incident ID</label>
-                        <p className="text-sm text-gray-900 font-mono">{selectedIncident.id || "N/A"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Incident ID</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">{selectedIncident.id || "N/A"}</p>
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Date & Time</label>
-                        <p className="text-sm text-gray-900">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Date & Time</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">
                           {selectedIncident.timestamp 
                             ? new Date(selectedIncident.timestamp).toLocaleString('en-US', {
                                 weekday: 'long',
@@ -566,46 +669,46 @@ export default function Map() {
                             : "N/A"}
                         </p>
                         {selectedIncident.dayOfWeek && (
-                          <p className="text-xs text-gray-500 mt-1">{selectedIncident.dayOfWeek}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200">{selectedIncident.dayOfWeek}</p>
                         )}
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</label>
-                        <p className="text-sm text-gray-900">{selectedIncident.category || "Unknown"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Category</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.category || "Unknown"}</p>
                       </div>
 
                       {selectedIncident.description && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</label>
-                          <p className="text-sm text-gray-700">{selectedIncident.description}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Description</label>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 transition-colors duration-200">{selectedIncident.description}</p>
                         </div>
                       )}
 
                       {selectedIncident.address && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.address}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Address</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.address}</p>
                         </div>
                       )}
 
                       {selectedIncident.policeDistrict && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Police District</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.policeDistrict}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Police District</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.policeDistrict}</p>
                         </div>
                       )}
 
                       {selectedIncident.resolution && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Resolution</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.resolution}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Resolution</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.resolution}</p>
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Coordinates</label>
-                        <p className="text-sm text-gray-900 font-mono">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Coordinates</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">
                           {selectedIncident.latitude?.toFixed(6)}, {selectedIncident.longitude?.toFixed(6)}
                         </p>
                       </div>
@@ -634,37 +737,37 @@ export default function Map() {
                 {/* 311 Service Request Details */}
                 {incidentType === "311" && (
                   <div className="space-y-4">
-                    <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-xl border border-blue-100 dark:border-blue-800/50 transition-colors duration-200">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                        <span className="text-sm font-semibold text-blue-700 uppercase">311 Service Request</span>
+                        <span className="text-sm font-semibold text-blue-700 dark:text-blue-400 uppercase transition-colors duration-200">311 Service Request</span>
                       </div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-1">
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 transition-colors duration-200">
                         {selectedIncident.category || "Unknown Request"}
                       </h3>
                     </div>
 
                     <div className="space-y-3">
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Request ID</label>
-                        <p className="text-sm text-gray-900 font-mono">{selectedIncident.id || "N/A"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Request ID</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">{selectedIncident.id || "N/A"}</p>
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Request Type</label>
-                        <p className="text-sm text-gray-900">{selectedIncident.category || "Unknown"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Request Type</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.category || "Unknown"}</p>
                       </div>
 
                       {selectedIncident.description && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</label>
-                          <p className="text-sm text-gray-700">{selectedIncident.description}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Description</label>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 transition-colors duration-200">{selectedIncident.description}</p>
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Requested Date & Time</label>
-                        <p className="text-sm text-gray-900">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Requested Date & Time</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">
                           {selectedIncident.timestamp 
                             ? new Date(selectedIncident.timestamp).toLocaleString('en-US', {
                                 weekday: 'long',
@@ -680,35 +783,35 @@ export default function Map() {
 
                       {selectedIncident.address && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.address}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Address</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.address}</p>
                         </div>
                       )}
 
                       {selectedIncident.neighborhood && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Neighborhood</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.neighborhood}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Neighborhood</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.neighborhood}</p>
                         </div>
                       )}
 
                       {selectedIncident.status && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.status}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Status</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.status}</p>
                         </div>
                       )}
 
                       {selectedIncident.agency && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agency</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.agency}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Agency</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.agency}</p>
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Coordinates</label>
-                        <p className="text-sm text-gray-900 font-mono">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Coordinates</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">
                           {selectedIncident.latitude?.toFixed(6)}, {selectedIncident.longitude?.toFixed(6)}
                         </p>
                       </div>
@@ -737,37 +840,37 @@ export default function Map() {
                 {/* Transit Vehicle Details */}
                 {incidentType === "transit" && (
                   <div className="space-y-4">
-                    <div className="p-4 bg-green-50 rounded-xl border border-green-100">
+                    <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl border border-green-100 dark:border-green-800/50 transition-colors duration-200">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                        <span className="text-sm font-semibold text-green-700 uppercase">Live Transit</span>
+                        <span className="text-sm font-semibold text-green-700 dark:text-green-400 uppercase transition-colors duration-200">Live Transit</span>
                       </div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-1">
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1 transition-colors duration-200">
                         Route {selectedIncident.route || "Unknown"}
                       </h3>
                     </div>
 
                     <div className="space-y-3">
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Vehicle ID</label>
-                        <p className="text-sm text-gray-900 font-mono">{selectedIncident.id || "N/A"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Vehicle ID</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">{selectedIncident.id || "N/A"}</p>
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Route</label>
-                        <p className="text-2xl font-bold text-gray-900">{selectedIncident.route || "Unknown"}</p>
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Route</label>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.route || "Unknown"}</p>
                       </div>
 
                       {selectedIncident.direction && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Direction</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.direction}</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Direction</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.direction}</p>
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Updated</label>
-                        <p className="text-sm text-gray-900">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Last Updated</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">
                           {selectedIncident.timestamp 
                             ? new Date(selectedIncident.timestamp).toLocaleString('en-US', {
                                 hour: '2-digit',
@@ -780,21 +883,21 @@ export default function Map() {
 
                       {selectedIncident.heading !== null && selectedIncident.heading !== undefined && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Heading</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.heading}°</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Heading</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.heading}°</p>
                         </div>
                       )}
 
                       {selectedIncident.speed !== null && selectedIncident.speed !== undefined && (
                         <div>
-                          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Speed</label>
-                          <p className="text-sm text-gray-900">{selectedIncident.speed} km/h</p>
+                          <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Speed</label>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 transition-colors duration-200">{selectedIncident.speed} km/h</p>
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Current Location</label>
-                        <p className="text-sm text-gray-900 font-mono">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider transition-colors duration-200">Current Location</label>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 font-mono transition-colors duration-200">
                           {selectedIncident.latitude?.toFixed(6)}, {selectedIncident.longitude?.toFixed(6)}
                         </p>
                       </div>
@@ -825,22 +928,22 @@ export default function Map() {
         </div>
 
         {/* Legend */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 dark:border-gray-700/50 p-6 transition-colors duration-200">
+          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4 transition-colors duration-200">
             Map Legend
           </h3>
           <div className="flex flex-wrap gap-6">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-red-500 rounded-full shadow-md"></div>
-              <span className="text-sm text-gray-700 font-medium">Crime Incidents</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium transition-colors duration-200">Crime Incidents</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-blue-500 rounded-full shadow-md"></div>
-              <span className="text-sm text-gray-700 font-medium">311 Reports</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium transition-colors duration-200">311 Reports</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-green-500 rounded-full shadow-md"></div>
-              <span className="text-sm text-gray-700 font-medium">Transit Vehicles</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium transition-colors duration-200">Transit Vehicles</span>
             </div>
           </div>
         </div>
