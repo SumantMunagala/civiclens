@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+📍 CivicLens
 
-## Getting Started
+A real-time geospatial dashboard for exploring crime, 311, and fire incidents across San Francisco.
 
-First, run the development server:
+CivicLens visualizes live civic datasets on an interactive Mapbox map with user accounts, saved settings, and a modern UI — built end-to-end using a startup-grade full-stack architecture.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+🚀 Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Interactive Mapbox dashboard with real-time crime, 311, and fire incident data
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Detailed incident sidebar with timestamps, categories, and metadata
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+User accounts & saved preferences (datasets, filters, map style, default location)
 
-## Learn More
+Supabase caching pipeline to reduce API calls and normalize civic datasets
 
-To learn more about Next.js, take a look at the following resources:
+Modern UI using Tailwind CSS with dark mode, filters, and animated components
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Serverless API routes for data ingestion, caching, and user settings
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+🧰 Tech Stack
 
-## Deploy on Vercel
+Frontend: Next.js 14 (App Router), React, TypeScript, Tailwind CSS, Mapbox GL
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Backend: Next.js API Routes, Supabase Postgres (JSONB cache), Supabase Auth
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deployment: Vercel + Supabase
+
+Data Sources: San Francisco OpenData API (Crime, 311, Fire/Emergency)
+
+🏗️ Architecture
+
+Real-time external dataset ingestion → cleaned + normalized
+
+Supabase JSONB caching with TTL → fast, stable responses
+
+User-specific settings stored in Postgres (RLS-protected)
+
+Server-rendered pages + client-side Mapbox for dynamic UI
