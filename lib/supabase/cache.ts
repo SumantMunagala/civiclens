@@ -1,4 +1,4 @@
-import { createClient } from "./server";
+import { createServiceRoleClient } from "./server";
 
 /**
  * Cache entry interface matching the Supabase table structure
@@ -21,7 +21,7 @@ export async function getCached(
   maxMinutes: number
 ): Promise<any | null> {
   try {
-    const supabase = createClient();
+    const supabase = createServiceRoleClient();
 
     const { data, error } = await supabase
       .from("api_cache")
@@ -67,7 +67,7 @@ export async function setCache(
   data: any
 ): Promise<boolean> {
   try {
-    const supabase = createClient();
+    const supabase = createServiceRoleClient();
 
     // Upsert: update if exists, insert if not
     const { error } = await supabase
@@ -103,7 +103,7 @@ export async function setCache(
  */
 export async function invalidateCache(key: string): Promise<boolean> {
   try {
-    const supabase = createClient();
+    const supabase = createServiceRoleClient();
 
     const { error } = await supabase
       .from("api_cache")
@@ -129,7 +129,7 @@ export async function invalidateCache(key: string): Promise<boolean> {
  */
 export async function invalidateAllCache(): Promise<boolean> {
   try {
-    const supabase = createClient();
+    const supabase = createServiceRoleClient();
 
     const { error } = await supabase
       .from("api_cache")

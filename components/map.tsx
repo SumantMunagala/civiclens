@@ -4,6 +4,11 @@ import mapboxgl from "mapbox-gl";
 import { useEffect, useRef, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import SearchBar from "./SearchBar";
+import SettingsModal from "./SettingsModal";
+import { useUser } from "@/lib/hooks/useUser";
+import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
+import type { UserSettings } from "@/lib/types/settings";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
@@ -34,6 +39,48 @@ export default function Map() {
   
   // Dark mode state
   const [isDark, setIsDark] = useState(false);
+  
+  // User and settings state
+  const { user, loading: userLoading } = useUser();
+  const router = useRouter();
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [savedSettings, setSavedSettings] = useState<UserSettings | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  
+  // Logout handler
+  const handleLogout = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log("Logout button clicked");
+    
+    try {
+      const supabase = createClient();
+      console.log("Supabase client created");
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error("Logout error:", error);
+      } else {
+        console.log("Sign out successful");
+      }
+      
+      // Clear any local state
+      setSavedSettings(null);
+      
+      // Small delay to ensure signOut completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Force a hard redirect to ensure session is cleared
+      window.location.href = "/login";
+    } catch (err) {
+      console.error("Logout failed:", err);
+      // Force redirect even on error
+      window.location.href = "/login";
+    }
+  };
   
   // Search location handler
   const handleSearchLocation = (lng: number, lat: number, placeName: string) => {
@@ -106,6 +153,56 @@ export default function Map() {
       window.removeEventListener("themechange", handleThemeChange);
     };
   }, []);
+
+  // Load user settings on mount
+  useEffect(() => {
+    if (userLoading || !user) {
+      setSettingsLoaded(false);
+      return;
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/settings");
+        if (res.ok) {
+          const settings = await res.json();
+          setSavedSettings(settings);
+          
+          // Apply settings
+          if (settings.preferred_datasets) {
+            // Set initial active data type based on preferences
+            if (settings.preferred_datasets.crime) {
+              setActiveDataType("crime");
+            } else if (settings.preferred_datasets.service) {
+              setActiveDataType("311");
+            } else if (settings.preferred_datasets.fire) {
+              setActiveDataType("fire");
+            }
+          }
+          
+          if (settings.preferred_time_window) {
+            setTimeFilter(settings.preferred_time_window);
+          }
+          
+          if (settings.map_style === "dark" && !document.documentElement.classList.contains("dark")) {
+            document.documentElement.classList.add("dark");
+            localStorage.setItem("theme", "dark");
+            setIsDark(true);
+          } else if (settings.map_style === "light" && document.documentElement.classList.contains("dark")) {
+            document.documentElement.classList.remove("dark");
+            localStorage.setItem("theme", "light");
+            setIsDark(false);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading settings:", error);
+      } finally {
+        setSettingsLoaded(true);
+      }
+    }
+
+    loadSettings();
+  }, [user, userLoading]);
 
   useEffect(() => {
     if (map.current) return;
@@ -426,6 +523,37 @@ export default function Map() {
             </div>
             
             <div className="flex items-center gap-3">
+              {/* User Actions */}
+              {user ? (
+                <>
+                  <button
+                    onClick={() => setSettingsModalOpen(true)}
+                    className="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors duration-200"
+                    aria-label="User Settings"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    type="button"
+                    className="px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors duration-200 text-sm font-medium cursor-pointer z-10 relative"
+                    aria-label="Logout"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <a
+                  href="/login"
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 transition-all duration-200 text-sm font-semibold shadow-lg shadow-blue-500/30"
+                >
+                  Sign In
+                </a>
+              )}
+              
               {/* Theme Toggle */}
               <ThemeToggle />
               
@@ -1000,6 +1128,36 @@ export default function Map() {
           </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        onSave={async (settings: UserSettings) => {
+          const res = await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(settings),
+          });
+          if (!res.ok) {
+            throw new Error("Failed to save settings");
+          }
+          const updatedSettings = await res.json();
+          setSavedSettings(updatedSettings);
+          
+          // Apply map style immediately
+          if (settings.map_style === "dark" && !document.documentElement.classList.contains("dark")) {
+            document.documentElement.classList.add("dark");
+            localStorage.setItem("theme", "dark");
+            setIsDark(true);
+          } else if (settings.map_style === "light" && document.documentElement.classList.contains("dark")) {
+            document.documentElement.classList.remove("dark");
+            localStorage.setItem("theme", "light");
+            setIsDark(false);
+          }
+        }}
+        initialSettings={savedSettings}
+      />
     </div>
   );
 }
